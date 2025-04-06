@@ -1,0 +1,184 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="900" height="700" viewBox="0 0 900 700">
+  <style>
+    .box {
+      fill: #ffffff;
+      stroke: #333333;
+      stroke-width: 2;
+    }
+    .server-box {
+      fill: #FFAA66;
+      stroke: #333333;
+      stroke-width: 3;
+    }
+    .edge-box {
+      fill: #99CCFF;
+      stroke: #333333;
+      stroke-width: 2;
+    }
+    .data-box {
+      fill: #AAFFAA;
+      stroke: #333333;
+      stroke-width: 1;
+    }
+    .communication-box {
+      fill: #fff0e6;
+      stroke: #333333;
+      stroke-width: 1.5;
+      stroke-dasharray: 5,3;
+    }
+    .arrow {
+      fill: none;
+      stroke: #666666;
+      stroke-width: 2;
+      marker-end: url(#arrowhead);
+    }
+    .data-arrow {
+      fill: none;
+      stroke: #ff5050;
+      stroke-width: 2;
+      stroke-dasharray: 4,2;
+      marker-end: url(#data-arrowhead);
+    }
+    .weight-arrow-down {
+      fill: none;
+      stroke: #0066CC;
+      stroke-width: 3;
+      marker-end: url(#weight-arrowhead);
+    }
+    .weight-arrow-up {
+      fill: none;
+      stroke: #FF6600;
+      stroke-width: 3;
+      marker-end: url(#weight-arrowhead-up);
+    }
+    .box-title {
+      font-family: Arial, sans-serif;
+      font-size: 22px;
+      font-weight: bold;
+      text-anchor: middle;
+    }
+    .box-text {
+      font-family: Arial, sans-serif;
+      font-size: 16px;
+      text-anchor: middle;
+    }
+    .step-text {
+      font-family: Arial, sans-serif;
+      font-size: 14px;
+      font-weight: bold;
+      text-anchor: middle;
+    }
+    .legend-title {
+      font-family: Arial, sans-serif;
+      font-size: 18px;
+      font-weight: bold;
+      text-anchor: middle;
+    }
+    .legend-text {
+      font-family: Arial, sans-serif;
+      font-size: 14px;
+      text-anchor: start;
+    }
+  </style>
+  
+  <!-- Define arrowhead markers -->
+  <defs>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#666666" />
+    </marker>
+    <marker id="data-arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#ff5050" />
+    </marker>
+    <marker id="weight-arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#0066CC" />
+    </marker>
+    <marker id="weight-arrowhead-up" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#FF6600" />
+    </marker>
+  </defs>
+  
+  <!-- Title -->
+  <text x="450" y="50" font-family="Arial, sans-serif" font-size="28" font-weight="bold" text-anchor="middle">Architecture du système Federated Learning</text>
+  
+  <!-- Server -->
+  <rect x="350" y="90" width="220" height="140" rx="10" ry="10" class="server-box" />
+  <text x="460" y="120" class="box-title">Serveur Fédéré</text>
+  <text x="460" y="150" class="box-text">1. Initialisation du modèle</text>
+  <text x="460" y="175" class="box-text">5. Agrégation des poids</text>
+  <text x="460" y="200" class="box-text">6. Mise à jour du modèle</text>
+  <text x="460" y="225" class="box-text">7. Évaluation</text>
+  
+  <!-- Communication Layer -->
+  <rect x="130" y="290" width="660" height="70" rx="5" ry="5" class="communication-box" />
+  <text x="460" y="330" class="box-title">Échange de poids (jamais de données)</text>
+  
+  <!-- Edge Nodes -->
+  <rect x="120" y="410" width="180" height="220" rx="10" ry="10" class="edge-box" />
+  <text x="210" y="440" class="box-title">Edge Node 1</text>
+  <rect x="150" y="460" width="120" height="70" rx="5" ry="5" class="data-box" />
+  <text x="210" y="495" class="box-text">Données</text>
+  <text x="210" y="520" class="box-text">locales</text>
+  <text x="210" y="560" class="box-text">3. Entraînement</text>
+  <text x="210" y="585" class="box-text">du modèle local</text>
+  <text x="210" y="610" class="box-text">avec ses données</text>
+  
+  <rect x="370" y="410" width="180" height="220" rx="10" ry="10" class="edge-box" />
+  <text x="460" y="440" class="box-title">Edge Node 2</text>
+  <rect x="400" y="460" width="120" height="70" rx="5" ry="5" class="data-box" />
+  <text x="460" y="495" class="box-text">Données</text>
+  <text x="460" y="520" class="box-text">locales</text>
+  <text x="460" y="560" class="box-text">3. Entraînement</text>
+  <text x="460" y="585" class="box-text">du modèle local</text>
+  <text x="460" y="610" class="box-text">avec ses données</text>
+  
+  <rect x="620" y="410" width="180" height="220" rx="10" ry="10" class="edge-box" />
+  <text x="710" y="440" class="box-title">Edge Node N</text>
+  <rect x="650" y="460" width="120" height="70" rx="5" ry="5" class="data-box" />
+  <text x="710" y="495" class="box-text">Données</text>
+  <text x="710" y="520" class="box-text">locales</text>
+  <text x="710" y="560" class="box-text">3. Entraînement</text>
+  <text x="710" y="585" class="box-text">du modèle local</text>
+  <text x="710" y="610" class="box-text">avec ses données</text>
+  
+  <!-- Connection arrows - Server to Edges (global weights) -->
+  <path d="M 370 230 L 220 290" class="weight-arrow-down" />
+  <text x="170" y="250" class="step-text" fill="#0066CC">2. Distribution des poids globaux</text>
+  
+  <path d="M 430 230 L 430 290" class="weight-arrow-down" />
+  <text x="750" y="260" class="step-text" fill="#0066CC">2. Distribution des poids globaux</text>
+  
+  <path d="M 550 230 L 700 290" class="weight-arrow-down" />
+  
+  <!-- Connection arrows - Edges to Server (local weights) -->
+  <path d="M 220 410 L 370 230" class="weight-arrow-up" />
+  <text x="170" y="350" class="step-text" fill="#FF6600">4. Envoi des poids locaux</text>
+  
+  <path d="M 460 410 L 460 230" class="weight-arrow-up" />
+  <text x="750" y="350" class="step-text" fill="#FF6600">4. Envoi des poids locaux</text>
+  
+  <path d="M 700 410 L 550 230" class="weight-arrow-up" />
+  
+  <!-- Legend -->
+  <rect x="680" y="90" width="200" height="140" rx="5" ry="5" class="box" />
+  <text x="780" y="115" class="legend-title">Légende</text>
+  
+  <rect x="700" y="130" width="20" height="15" class="server-box" />
+  <text x="730" y="143" class="legend-text" x-alignment-baseline="middle">Serveur fédéré</text>
+  
+  <rect x="700" y="155" width="20" height="15" class="edge-box" />
+  <text x="730" y="168" class="legend-text" x-alignment-baseline="middle">Nœuds Edge</text>
+  
+  <rect x="700" y="180" width="20" height="15" class="data-box" />
+  <text x="730" y="193" class="legend-text" x-alignment-baseline="middle">Données locales</text>
+  
+  <line x1="700" y1="205" x2="720" y2="205" class="weight-arrow-down" />
+  <text x="730" y="210" class="legend-text" x-alignment-baseline="middle">Poids globaux</text>
+  
+  <line x1="700" y1="225" x2="720" y2="225" class="weight-arrow-up" />
+  <text x="730" y="230" class="legend-text" x-alignment-baseline="middle">Poids locaux</text>
+  
+  <!-- Footer -->
+  <text x="460" y="670" font-family="Arial, sans-serif" font-size="18" font-weight="bold" text-anchor="middle">Federated Learning : les données restent sur les appareils,</text>
+  <text x="460" y="695" font-family="Arial, sans-serif" font-size="18" font-weight="bold" text-anchor="middle">seuls les poids des modèles sont échangés</text>
+</svg>
