@@ -37,7 +37,7 @@ La communication entre le serveur central et les nœuds périphériques se fait 
 
 Le processus global suit l'algorithme FedAvg (Federated Averaging), où les poids des modèles locaux sont agrégés proportionnellement à la quantité de données traitées par chaque edge.
 
-![Architecture du système de Federated Learning](fl.svg)
+![Architecture du système de Federated Learning](ressource_image/fl.svg)
 
 ## Composants clés
 
@@ -280,7 +280,7 @@ On observe une différence significative entre les performances du modèle centr
 
 Les graphiques montrent l'évolution de la perte et de la précision au fil des rounds :
 
-![Évolution de la perte et de la précision](résultat_edge.png)
+![Évolution de la perte et de la précision](ressource_image/résultat_edge.png)
 
 On observe :
 - Une diminution progressive de la perte du modèle fédéré, mais qui reste bien supérieure à celle du modèle centralisé.
