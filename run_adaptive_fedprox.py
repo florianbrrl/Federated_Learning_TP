@@ -398,7 +398,7 @@ if __name__ == "__main__":
     
     # Paramètres de l'expérience
     num_edges = 10
-    num_rounds = 20
+    num_rounds = 30
     edge_epochs = 1
     folders_per_edge = 2  # Distribution non-IID: 2 classes par edge
     verbose = 1

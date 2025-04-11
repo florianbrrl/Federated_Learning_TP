@@ -19,7 +19,7 @@ from edge_node import EdgeNode
 import fl_dataquest
 
 def run_federated_learning(mnist_base_path, test_dataset, model_class, mu=0.0, 
-                          num_edges=10, num_rounds=5, edge_epochs=1, 
+                          num_edges=10, num_rounds=10, edge_epochs=10, 
                           input_shape=(28, 28), num_classes=10, 
                           folders_per_edge=2, verbose=1):
     """
@@ -93,7 +93,7 @@ def run_federated_learning(mnist_base_path, test_dataset, model_class, mu=0.0,
     return evaluation_history
 
 
-def compare_fedavg_fedprox(mnist_base_path, num_edges=10, num_rounds=10, edge_epochs=1, 
+def compare_fedavg_fedprox(mnist_base_path, num_edges=10, num_rounds=10, edge_epochs=10, 
                           folders_per_edge=2, mu_values=[0.0, 0.01, 0.1], verbose=1):
     """
     Compare les performances de FedAvg et FedProx avec différentes valeurs de mu.
@@ -227,8 +227,7 @@ def plot_comparison(histories, central_accuracy, num_rounds):
     print("Graphiques sauvegardés dans le dossier 'figures'")
     
 
-
-def experiment_non_iid_effect(mnist_base_path, num_edges=10, num_rounds=10, edge_epochs=1, verbose=1):
+def experiment_non_iid_effect(mnist_base_path, num_edges=10, num_rounds=10, edge_epochs=10, verbose=1):
     """
     Expérimente l'effet de différentes distributions non-IID sur FedAvg et FedProx.
     
@@ -358,6 +357,244 @@ def plot_non_iid_comparison(results, num_rounds):
     print("Graphiques de l'expérience sur la non-IID sauvegardés dans le dossier 'figures'")
 
 
+def run_experiments(mnist_base_path, configurations, num_rounds=30, verbose=1):
+    """
+    Exécute des expériences d'apprentissage fédéré selon les configurations spécifiées.
+    
+    Args:
+        mnist_base_path: Chemin de base vers les données MNIST
+        configurations: Liste des configurations à tester
+        num_rounds: Nombre de rounds de fédération
+        verbose: Niveau de verbosité
+    
+    Returns:
+        Dictionnaire contenant les résultats pour chaque configuration
+    """
+    # Dictionnaire pour stocker les résultats
+    results = {}
+    
+    # Charger les données de test centralisées
+    X_train, X_test, y_train, y_test, input_shape = fl_dataquest.get_data(mnist_base_path, verbose=verbose)
+    # Créer le jeu de données de test
+    _, test_dataset = fl_dataquest.get_dataset(X_train, X_test, y_train, y_test, batch_size=32, verbose=verbose)
+    
+    # Entraîner un modèle centralisé pour comparaison
+    print("\n--- Entraînement du modèle centralisé pour comparaison ---")
+    central_model = FedProxModel(input_shape, nbclasses=10)
+    train_dataset, _ = fl_dataquest.get_dataset(X_train, X_test, y_train, y_test, batch_size=32, verbose=verbose)
+    central_model.fit_it(trains=train_dataset, epochs=num_rounds * 3, tests=test_dataset, verbose=verbose)
+    central_loss, central_accuracy = central_model.evaluate(test_dataset, verbose=verbose)
+    print(f"\nModèle centralisé - Perte: {central_loss:.4f}, Précision: {central_accuracy:.4f}")
+    
+    # Exécuter chaque configuration
+    for config in configurations:
+        name = config['name']
+        num_clients = config['num_clients']
+        edge_epochs = config['epochs']
+        
+        # Gérer la distribution IID vs non-IID
+        # Pour IID, on donne toutes les classes (10)
+        # Pour non-IID, on limite à 2 classes par client
+        folders_per_edge = 10 if config['distribution'] == 'iid' else 2
+        
+        # Gérer l'algorithme
+        if config['algo'] == 'fedavg':
+            mu = 0.0
+            algo_name = "FedAvg"
+        elif config['algo'] == 'fedprox':
+            mu = 0.1
+            algo_name = "FedProx"
+        elif config['algo'] == 'fedsgd':
+            mu = 0.0
+            algo_name = "FedSGD"
+            # Pour FedSGD, on pourrait ajuster le taux d'apprentissage
+            # Cela dépendrait de l'implémentation de ton FedProxModel
+            # Par exemple: learning_rate = config.get('lr', 0.01)
+        else:
+            # Algorithme par défaut
+            mu = 0.0
+            algo_name = "Default"
+        
+        print(f"\n--- Exécution de {name}: {algo_name}, {num_clients} clients, {edge_epochs} époques ---")
+        
+        # Mesurer le temps d'exécution
+        start_time = time.time()
+        
+        # Exécuter l'apprentissage fédéré
+        history = run_federated_learning(
+            mnist_base_path,
+            test_dataset,
+            FedProxModel,
+            mu=mu,
+            num_edges=num_clients,
+            num_rounds=num_rounds,
+            edge_epochs=edge_epochs,
+            input_shape=input_shape,
+            folders_per_edge=folders_per_edge,
+            verbose=verbose
+        )
+        
+        elapsed_time = time.time() - start_time
+        
+        # Stocker les résultats
+        final_loss, final_accuracy = history[-1]
+        results[name] = {
+            "history": history,
+            "time": elapsed_time,
+            "final_loss": final_loss,
+            "final_accuracy": final_accuracy,
+            "config": config
+        }
+        
+        print(f"{name} - Perte finale: {final_loss:.4f}, Précision finale: {final_accuracy:.4f}")
+        print(f"Temps d'exécution: {elapsed_time:.2f} secondes")
+    
+    # Tracer les résultats
+    plot_experiment_results(results, central_accuracy, num_rounds)
+    
+    return results, (central_loss, central_accuracy)
+
+
+def plot_experiment_results(results, central_accuracy, num_rounds):
+    """
+    Génère et sauvegarde des graphiques comparant les performances des différentes configurations.
+    
+    Args:
+        results: Dictionnaire contenant les résultats de chaque configuration
+        central_accuracy: Précision du modèle centralisé
+        num_rounds: Nombre de rounds de fédération
+    """
+    # Créer le répertoire pour les figures si nécessaire
+    os.makedirs('figures', exist_ok=True)
+    
+    # Préparer les données pour les graphiques
+    rounds = list(range(1, num_rounds + 1))
+    
+    # --- Comparaison du nombre de clients ---
+    # Filtrer les résultats pour la comparaison du nombre de clients
+    client_configs = [k for k in results.keys() if k.startswith('Clients_')]
+    
+    if client_configs:
+        plt.figure(figsize=(12, 5))
+        for config_name in client_configs:
+            accuracies = [x[1] for x in results[config_name]["history"]]
+            plt.plot(rounds, accuracies, marker='o', label=config_name)
+        
+        plt.axhline(y=central_accuracy, color='r', linestyle='--', label='Centralisé')
+        plt.xlabel('Round')
+        plt.ylabel('Précision')
+        plt.title('Impact du nombre de clients sur la précision')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        plt.savefig('figures/client_number_comparison.png', dpi=300, bbox_inches='tight')
+    
+    # --- Comparaison des algorithmes ---
+    # Filtrer les résultats pour la comparaison des algorithmes
+    algo_configs = ['FedAvg_10', 'FedProx_10']
+    if 'FedSGD_LR0.1' in results:
+        algo_configs.append('FedSGD_LR0.1')
+    
+    valid_algo_configs = [k for k in algo_configs if k in results]
+    
+    if valid_algo_configs:
+        plt.figure(figsize=(12, 5))
+        for config_name in valid_algo_configs:
+            accuracies = [x[1] for x in results[config_name]["history"]]
+            plt.plot(rounds, accuracies, marker='o', label=config_name)
+        
+        plt.axhline(y=central_accuracy, color='r', linestyle='--', label='Centralisé')
+        plt.xlabel('Round')
+        plt.ylabel('Précision')
+        plt.title('Comparaison des algorithmes d\'agrégation')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        plt.savefig('figures/algorithm_comparison.png', dpi=300, bbox_inches='tight')
+    
+    # --- Comparaison IID vs Non-IID ---
+    if 'NonIID_10clients' in results and 'FedAvg_10' in results:
+        plt.figure(figsize=(12, 5))
+        
+        iid_accuracies = [x[1] for x in results['FedAvg_10']["history"]]
+        noniid_accuracies = [x[1] for x in results['NonIID_10clients']["history"]]
+        
+        plt.plot(rounds, iid_accuracies, marker='o', label='IID (10 clients)')
+        plt.plot(rounds, noniid_accuracies, marker='s', label='Non-IID (10 clients)')
+        
+        plt.axhline(y=central_accuracy, color='r', linestyle='--', label='Centralisé')
+        plt.xlabel('Round')
+        plt.ylabel('Précision')
+        plt.title('Impact de la distribution des données (IID vs Non-IID)')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        plt.savefig('figures/iid_vs_noniid.png', dpi=300, bbox_inches='tight')
+    
+    # --- Comparaison du nombre d'époques ---
+    epochs_configs = ['Epochs_1', 'Epochs_3', 'Epochs_5'] 
+    valid_epochs_configs = [k for k in epochs_configs if k in results]
+    
+    if len(valid_epochs_configs) > 1:
+        plt.figure(figsize=(12, 5))
+        for config_name in valid_epochs_configs:
+            accuracies = [x[1] for x in results[config_name]["history"]]
+            plt.plot(rounds, accuracies, marker='o', label=config_name)
+        
+        plt.axhline(y=central_accuracy, color='r', linestyle='--', label='Centralisé')
+        plt.xlabel('Round')
+        plt.ylabel('Précision')
+        plt.title('Impact du nombre d\'époques locales')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        plt.savefig('figures/local_epochs_comparison.png', dpi=300, bbox_inches='tight')
+    
+    # --- Temps d'exécution ---
+    plt.figure(figsize=(14, 6))
+    names = list(results.keys())
+    times = [results[name]["time"] for name in names]
+    
+    # Trier par temps d'exécution
+    sorted_indices = np.argsort(times)
+    sorted_names = [names[i] for i in sorted_indices]
+    sorted_times = [times[i] for i in sorted_indices]
+    
+    plt.bar(sorted_names, sorted_times)
+    plt.xlabel('Configuration')
+    plt.ylabel('Temps d\'exécution (s)')
+    plt.title('Temps d\'exécution par configuration')
+    plt.xticks(rotation=45, ha='right')
+    plt.grid(True, alpha=0.3, axis='y')
+    plt.tight_layout()
+    plt.savefig('figures/execution_time_all.png', dpi=300, bbox_inches='tight')
+    
+    # --- Précisions finales ---
+    plt.figure(figsize=(14, 6))
+    final_accuracies = [results[name]["final_accuracy"] for name in names]
+    
+    # Trier par précision finale
+    sorted_indices = np.argsort(final_accuracies)[::-1]  # Ordre décroissant
+    sorted_names = [names[i] for i in sorted_indices]
+    sorted_accuracies = [final_accuracies[i] for i in sorted_indices]
+    
+    bars = plt.bar(sorted_names, sorted_accuracies)
+    plt.axhline(y=central_accuracy, color='r', linestyle='--', label='Centralisé')
+    
+    # Ajouter les valeurs au-dessus des barres
+    for bar in bars:
+        height = bar.get_height()
+        plt.text(bar.get_x() + bar.get_width()/2., height + 0.005,
+                f'{height:.3f}', ha='center', va='bottom', rotation=0)
+    
+    plt.xlabel('Configuration')
+    plt.ylabel('Précision finale')
+    plt.title('Précision finale par configuration')
+    plt.xticks(rotation=45, ha='right')
+    plt.legend()
+    plt.grid(True, alpha=0.3, axis='y')
+    plt.tight_layout()
+    plt.savefig('figures/final_accuracy_all.png', dpi=300, bbox_inches='tight')
+    
+    print("Graphiques sauvegardés dans le dossier 'figures'")
+
+
 if __name__ == "__main__":
     # Définir le chemin vers le dataset MNIST
     mnist_base_path = '/Users/moneillon/Programmes/menez2/MNIST/trainingSet/trainingSet/'
@@ -367,30 +604,76 @@ if __name__ == "__main__":
         print(f"Le chemin {mnist_base_path} n'existe pas.")
         mnist_base_path = input("Veuillez entrer le chemin correct vers le dataset MNIST: ")
     
+    # Définir les configurations des expériences
+    configurations = [
+        # Nombre de clients
+        {'name': 'Clients_5', 'num_clients': 5, 'distribution': 'iid', 'algo': 'fedavg', 'epochs': 3},
+        {'name': 'Clients_10', 'num_clients': 10, 'distribution': 'iid', 'algo': 'fedavg', 'epochs': 3},
+        {'name': 'Clients_20', 'num_clients': 20, 'distribution': 'iid', 'algo': 'fedavg', 'epochs': 3},
+        
+        # Distribution des données
+        {'name': 'NonIID_10clients', 'num_clients': 10, 'distribution': 'non_iid', 'algo': 'fedavg', 'epochs': 3},
+        
+        # Algorithmes d'agrégation
+        {'name': 'FedAvg_10', 'num_clients': 10, 'distribution': 'iid', 'algo': 'fedavg', 'epochs': 3},
+        {'name': 'FedProx_10', 'num_clients': 10, 'distribution': 'iid', 'algo': 'fedprox', 'epochs': 3},
+        
+        # Époques locales
+        {'name': 'Epochs_1', 'num_clients': 10, 'distribution': 'iid', 'algo': 'fedavg', 'epochs': 1},
+        {'name': 'Epochs_5', 'num_clients': 10, 'distribution': 'iid', 'algo': 'fedavg', 'epochs': 5},
+    ]
+    
     # Paramètres de l'expérience
-    num_edges = 10
     num_rounds = 30
-    edge_epochs = 1
     verbose = 1
     
-    # Comparer FedAvg et FedProx
-    print("\n=== Comparaison de FedAvg et FedProx ===")
-    compare_fedavg_fedprox(
-        mnist_base_path, 
-        num_edges=num_edges, 
-        num_rounds=num_rounds, 
-        edge_epochs=edge_epochs, 
-        folders_per_edge=2,  # Distribution non-IID: 2 classes par edge
-        mu_values=[0.0, 0.01, 0.1],  # 0.0 = FedAvg, 0.01 et 0.1 = FedProx
-        verbose=verbose
-    )
+    # Choix du mode d'expérimentation
+    print("\n=== Choix du mode d'expérimentation ===")
+    print("1. Expérimentations avec les configurations personnalisées")
+    print("2. Comparaison traditionnelle FedAvg et FedProx")
+    print("3. Expérimentation de l'effet non-IID")
+    choice = input("\nVeuillez choisir le mode d'expérimentation (1, 2 ou 3): ")
     
-    # Expérimenter l'effet de différentes distributions non-IID
-    print("\n=== Expérimentation de l'effet de la non-IID ===")
-    experiment_non_iid_effect(
-        mnist_base_path, 
-        num_edges=num_edges, 
-        num_rounds=num_rounds, 
-        edge_epochs=edge_epochs, 
-        verbose=verbose
-    )
+    if choice == '1':
+        # Exécuter les expériences avec les configurations personnalisées
+        print("\n=== Exécution des expériences avec configurations personnalisées ===")
+        results, central_results = run_experiments(
+            mnist_base_path, 
+            configurations, 
+            num_rounds=num_rounds, 
+            verbose=verbose
+        )
+        
+        # Afficher un résumé des résultats
+        print("\n=== Résumé des résultats ===")
+        print(f"Modèle centralisé - Précision: {central_results[1]:.4f}")
+        
+        for name, data in results.items():
+            print(f"{name} - Précision: {data['final_accuracy']:.4f}, Temps: {data['time']:.2f}s")
+    
+    elif choice == '2':
+        # Comparer FedAvg et FedProx (méthode originale)
+        print("\n=== Comparaison de FedAvg et FedProx ===")
+        compare_fedavg_fedprox(
+            mnist_base_path, 
+            num_edges=10, 
+            num_rounds=num_rounds, 
+            edge_epochs=3, 
+            folders_per_edge=2,
+            mu_values=[0.0, 0.01, 0.1],
+            verbose=verbose
+        )
+    
+    elif choice == '3':
+        # Expérimenter l'effet de différentes distributions non-IID (méthode originale)
+        print("\n=== Expérimentation de l'effet de la non-IID ===")
+        experiment_non_iid_effect(
+            mnist_base_path, 
+            num_edges=10, 
+            num_rounds=num_rounds, 
+            edge_epochs=3,
+            verbose=verbose
+        )
+    
+    else:
+        print("Choix invalide. Fin du programme.")
