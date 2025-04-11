@@ -1,12 +1,14 @@
 """
-Ce module étend le modèle de base pour implémenter FedProx.
-Il ajoute la régularisation proximale au modèle d'apprentissage fédéré.
+Ce module implémente un modèle pour FedProx avec support pour la régularisation proximale.
+Il étend le modèle de base en ajoutant un terme de régularisation pour limiter la divergence
+entre les modèles locaux et le modèle global.
 """
+
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Activation, Flatten, Dense, Input
-from tensorflow.keras.optimizers import SGD
+from tensorflow.keras.optimizers import SGD, legacy
 import tensorflow.keras.backend as K
 
 class FedProxModel:
@@ -26,7 +28,7 @@ class FedProxModel:
             mu: Paramètre de régularisation proximale (0 = équivalent à FedAvg)
         """
         self.model = Sequential()
-        self.model.add(Input(input_shape))
+        self.model.add(Input(shape=input_shape))
         self.model.add(Flatten())
         self.model.add(Dense(128))
         self.model.add(Activation("relu"))
@@ -39,41 +41,98 @@ class FedProxModel:
         self.classes = nbclasses
         self.mu = mu
         self.global_weights = None
+        self.proximal_layers = []  # Pour stocker les variables du terme proximal
+        
+        # Utiliser l'optimiseur legacy pour M1/M2 Macs
+        try:
+            # Tenter d'utiliser l'optimiseur legacy
+            optimizer = legacy.SGD(learning_rate=0.01)
+        except:
+            # Retomber sur l'optimiseur standard si legacy n'est pas disponible
+            optimizer = SGD(learning_rate=0.01)
         
         # Initialisation sans le terme proximal
         self.loss_fn = 'categorical_crossentropy'
-        self.model.compile(optimizer="SGD", loss=self.loss_fn, metrics=["accuracy"])
+        self.model.compile(optimizer=optimizer, loss=self.loss_fn, metrics=["accuracy"])
     
     def get_weights(self):
-        """Récupère les poids du modèle."""
+        """
+        Récupère les poids du modèle.
+        
+        Returns:
+            Les poids du modèle
+        """
         return self.model.get_weights()
 
     def set_weights(self, weights):
-        """Définit les poids du modèle."""
+        """
+        Définit les poids du modèle.
+        
+        Args:
+            weights: Les poids à définir
+        """
         self.model.set_weights(weights)
         
     def set_global_weights(self, weights):
         """
         Stocke les poids globaux pour la régularisation proximale.
         Ces poids servent de référence pour limiter la divergence.
-        """
-        self.global_weights = weights.copy()
-    
-    def _proximal_term(self):
-        """
-        Calcule le terme de régularisation proximale entre les poids
-        actuels et les poids globaux.
-        """
-        if self.global_weights is None:
-            return 0.0
-            
-        proximal_term = 0.0
-        current_weights = self.model.get_weights()
         
-        for w_curr, w_glob in zip(current_weights, self.global_weights):
-            proximal_term += (1/2) * tf.reduce_sum(tf.square(w_curr - w_glob))
+        Args:
+            weights: Les poids globaux à stocker
+        """
+        # Stocker les poids globaux comme des tenseurs constants
+        self.global_weights = []
+        # Convertir les poids numpy en tenseurs constants TensorFlow
+        for w in weights:
+            self.global_weights.append(tf.constant(w, dtype=tf.float32))
+        
+        # Préparer les couches du modèle pour le terme proximal
+        self.proximal_layers = []
+        model_layers = [layer for layer in self.model.layers if len(layer.weights) > 0]
+        
+        # S'assurer que les longueurs correspondent
+        if len(model_layers) * 2 != len(self.global_weights):
+            raise ValueError(f"Mismatch in weights: model has {len(model_layers)} layers with weights, but global_weights has {len(self.global_weights)} elements")
+    
+    def proximal_loss_wrapper(self):
+        """
+        Crée une fonction de perte personnalisée qui inclut le terme proximal.
+        Cette approche évite l'appel à get_weights() dans le graphe TensorFlow.
+        
+        Returns:
+            La fonction de perte avec terme proximal
+        """
+        mu = self.mu
+        global_weights = self.global_weights
+        
+        def proximal_loss(y_true, y_pred):
+            # Perte originale
+            original_loss = tf.keras.losses.categorical_crossentropy(y_true, y_pred)
             
-        return self.mu * proximal_term
+            # Si pas de poids globaux, retourner juste la perte originale
+            if global_weights is None or mu == 0.0:
+                return original_loss
+            
+            # Ajouter le terme proximal
+            proximal_term = 0.0
+            
+            # Récupérer les couches avec des poids
+            model_layers = [layer for layer in self.model.layers if len(layer.weights) > 0]
+            
+            # Calculer la régularisation proximale
+            i = 0
+            for layer in model_layers:
+                # Pour chaque poids et biais dans la couche
+                for w, w_t in zip(layer.weights, global_weights[i:i+len(layer.weights)]):
+                    # Calculer la norme L2 carrée de la différence
+                    proximal_term += (1.0/2.0) * tf.reduce_sum(tf.square(w - w_t))
+                i += len(layer.weights)
+            
+            # Retourner la perte combinée
+            return original_loss + mu * proximal_term
+        
+        return proximal_loss
     
     def compile_proximal(self):
         """
@@ -81,24 +140,24 @@ class FedProxModel:
         La régularisation proximale est ajoutée si mu > 0, sinon
         on utilise simplement la perte standard (FedAvg).
         """
+        try:
+            # Tenter d'utiliser l'optimiseur legacy
+            optimizer = legacy.SGD(learning_rate=0.01)
+        except:
+            # Retomber sur l'optimiseur standard si legacy n'est pas disponible
+            optimizer = SGD(learning_rate=0.01)
+            
         if self.mu > 0 and self.global_weights is not None:
-            # Définir une fonction de perte personnalisée avec le terme proximal
-            def proximal_loss(y_true, y_pred):
-                # Perte originale
-                original_loss = tf.keras.losses.categorical_crossentropy(y_true, y_pred)
-                # Ajouter le terme proximal
-                return original_loss + self._proximal_term()
-                
-            # Compiler avec la perte proximale
+            # Utiliser la fonction wrapper qui ne dépend pas de get_weights()
             self.model.compile(
-                optimizer=SGD(learning_rate=0.01),
-                loss=proximal_loss,
+                optimizer=optimizer,
+                loss=self.proximal_loss_wrapper(),
                 metrics=["accuracy"]
             )
         else:
             # Sans régularisation proximale (FedAvg standard)
             self.model.compile(
-                optimizer=SGD(learning_rate=0.01),
+                optimizer=optimizer,
                 loss=self.loss_fn,
                 metrics=["accuracy"]
             )
@@ -113,8 +172,9 @@ class FedProxModel:
             tests: Dataset de test (optionnel)
             verbose: Niveau de verbosité (0=silencieux, 1=progression, 2=détaillé)
         """
-        # Recompiler pour s'assurer que la perte est à jour
-        self.compile_proximal()
+        # Si FedProx est activé (mu > 0), recompiler avec la perte proximale
+        if self.mu > 0 and self.global_weights is not None:
+            self.compile_proximal()
         
         # Entraîner le modèle
         self.history = self.model.fit(
@@ -138,11 +198,18 @@ class FedProxModel:
         return self.model.evaluate(tests, verbose=verbose)
 
     def summary(self):
-        """Retourne un résumé du modèle."""
+        """
+        Retourne un résumé du modèle.
+        
+        Returns:
+            Le résumé du modèle
+        """
         return self.model.summary()
     
     def pretty_print_layers(self):
-        """Affiche les informations sur les poids des couches du modèle."""
+        """
+        Affiche les informations sur les poids des couches du modèle.
+        """
         for layer_i in range(len(self.model.layers)):
             l = self.model.layers[layer_i].get_weights()
             if len(l) != 0:
