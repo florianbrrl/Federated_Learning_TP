@@ -1,5 +1,4 @@
-Analyse complète des fichiers de code d'apprentissage fédéré
-Voici une analyse détaillée de chaque fichier de code que vous avez partagé, qui ensemble constituent une implémentation complète d'apprentissage fédéré avec différentes variantes algorithmiques.
+Voici tous les fichiers necessaires à la Partie comparaison dont certains fichiers sont disponible dans les autres parties (Florian et Dylan)
 1. main_experimentation.py (Script principal)
 Ce fichier contient le script principal qui exécute et compare différentes approches d'apprentissage fédéré sur le dataset MNIST.
 Fonctions principales:
@@ -94,6 +93,7 @@ Modules auxiliaires:
 * fl_dataquest: Charge et prétraite les données MNIST.
 * fl_model: Définit l'architecture du modèle utilisé par tous les participants.
 * FedProxModel: Étend le modèle de base avec le terme de régularisation proximale.
+
 Analyse globale:
 L'ensemble de ces fichiers constitue un framework complet pour expérimenter avec différentes approches d'apprentissage fédéré. Les implémentations vont du simple FedAvg à des approches plus sophistiquées comme FedProx avec μ adaptatif, permettant une analyse approfondie des différentes stratégies d'apprentissage fédéré dans divers scénarios (distribution IID/non-IID, nombre variable de clients, différentes configurations d'entraînement).
 La structure modulaire permet d'isoler et d'étudier l'impact de chaque composant du système d'apprentissage fédéré, tandis que les fonctions de visualisation facilitent l'interprétation des résultats.
