@@ -42,13 +42,14 @@ class AdaptiveEdgeNode:
         self.sample_count = 0
         self.class_distribution = None
         
-    def load_data(self, num_classes=10, folders_per_edge=None):
+    def load_data(self, num_classes=10, folders_per_edge=None, dirichlet_alpha=None):
         """
         Charge les données pour cet edge et calcule la distribution des classes.
         
         Args:
             num_classes: Nombre total de classes
             folders_per_edge: Nombre de dossiers (classes) que cet edge doit charger
+            dirichlet_alpha: Paramètre alpha pour distribution de Dirichlet (plus petit = plus non-IID)
         """
         from fl_dataquest import load_and_preprocess
         
@@ -60,9 +61,53 @@ class AdaptiveEdgeNode:
             if folders_per_edge is None:
                 folders_per_edge = random.randint(1, num_classes)
                 
-            # Choisir aléatoirement des dossiers (classes)
-            all_folders = [str(i) for i in range(num_classes)]
-            self.data_folders = random.sample(all_folders, folders_per_edge)
+            # Si un alpha de Dirichlet est fourni, utiliser une distribution de Dirichlet pour les classes
+            if dirichlet_alpha is not None:
+                try:
+                    # Générer une distribution de Dirichlet pour déterminer la proportion des classes
+                    class_priors = np.random.dirichlet([dirichlet_alpha] * num_classes)
+                    
+                    # Sélectionner les classes en fonction de leur probabilité
+                    selected_classes = []
+                    remaining_classes = list(range(num_classes))
+                    
+                    # Sélectionner folders_per_edge classes
+                    for _ in range(folders_per_edge):
+                        if not remaining_classes:
+                            break
+                            
+                        # Normaliser les probabilités restantes
+                        probs = [class_priors[i] for i in remaining_classes]
+                        sum_probs = sum(probs)
+                        if sum_probs > 0:
+                            probs = [p/sum_probs for p in probs]
+                            
+                            # Sélectionner une classe avec une probabilité proportionnelle à sa prior
+                            selected_idx = np.random.choice(len(remaining_classes), p=probs)
+                            selected_class = remaining_classes[selected_idx]
+                            selected_classes.append(selected_class)
+                            
+                            # Retirer la classe sélectionnée
+                            remaining_classes.pop(selected_idx)
+                        else:
+                            # Si toutes les probabilités sont 0, sélectionner aléatoirement
+                            selected_class = random.choice(remaining_classes)
+                            selected_classes.append(selected_class)
+                            remaining_classes.remove(selected_class)
+                    
+                    self.data_folders = [str(i) for i in selected_classes]
+                    
+                    if self.verbose > 0:
+                        print(f"Distribution de Dirichlet utilisée avec alpha={dirichlet_alpha}")
+                except Exception as e:
+                    print(f"Erreur lors de l'utilisation de la distribution Dirichlet: {e}")
+                    # Fallback à la sélection aléatoire en cas d'erreur
+                    all_folders = [str(i) for i in range(num_classes)]
+                    self.data_folders = random.sample(all_folders, folders_per_edge)
+            else:
+                # Sélection aléatoire classique si pas de dirichlet_alpha
+                all_folders = [str(i) for i in range(num_classes)]
+                self.data_folders = random.sample(all_folders, folders_per_edge)
             
         if self.verbose > 0:
             print(f"Edge {self.edge_id} va charger les classes: {self.data_folders}")
@@ -111,7 +156,7 @@ class AdaptiveEdgeNode:
             
         return self.dataset, self.sample_count
     
-    def train_model(self, global_model_weights, input_shape, num_classes=10, epochs=1):
+    def train_model(self, global_model_weights, input_shape, num_classes=10, epochs=1, learning_rate=None):
         """
         Entraîne un modèle local en utilisant les données de cet edge.
         Implémente FedProx en ajustant les poids après l'entraînement si mu > 0.
@@ -121,6 +166,7 @@ class AdaptiveEdgeNode:
             input_shape: Forme des données d'entrée
             num_classes: Nombre de classes pour la classification
             epochs: Nombre d'époques d'entraînement
+            learning_rate: Taux d'apprentissage optionnel
             
         Returns:
             Les poids du modèle local entraîné

@@ -96,7 +96,7 @@ def get_data(img_path = 'C:/Users/barra/Documents/M2/Menez/TP4/Mnist/Mnist/train
 
     # from sklearn => split data into training and test set
     X_train, X_test, y_train, y_test =  train_test_split(il, ll, 
-                                                         test_size=0.1, 
+                                                         test_size=0.2, 
                                                          random_state=19)
 
     # pour voir et etre certain des dimensions (cas MNIST) !

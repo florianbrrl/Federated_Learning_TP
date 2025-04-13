@@ -9,6 +9,7 @@ import tensorflow as tf
 import matplotlib.pyplot as plt
 import time
 import random
+import concurrent.futures
 from collections import Counter
 
 # Importer les modules personnalisés
@@ -22,9 +23,13 @@ import fl_dataquest
 
 
 def run_federated_learning_adaptive_mu(mnist_base_path, test_dataset, 
-                                      num_edges=10, num_rounds=10, edge_epochs=1, 
+                                      num_edges=20, num_rounds=10, edge_epochs=1, 
                                       input_shape=(28, 28), num_classes=10, 
-                                      folders_per_edge=2, verbose=1):
+                                      folders_per_edge=2, verbose=1, 
+                                      client_fraction=1.0, # Facultatif: fraction des clients à sélectionner par round
+                                      use_momentum=True, # Utiliser momentum pour stabiliser l'apprentissage
+                                      momentum=0.1, # Paramètre de momentum
+                                      dirichlet_alpha=0.5): # Pour distribution non-IID plus naturelle
     """
     Exécute le processus d'apprentissage fédéré avec μ adaptatif.
     
@@ -38,6 +43,10 @@ def run_federated_learning_adaptive_mu(mnist_base_path, test_dataset,
         num_classes: Nombre de classes pour la classification
         folders_per_edge: Nombre de dossiers (classes) par edge
         verbose: Niveau de verbosité
+        client_fraction: Fraction des clients à sélectionner par round
+        use_momentum: Utiliser momentum pour stabiliser l'apprentissage
+        momentum: Paramètre de momentum
+        dirichlet_alpha: Paramètre alpha pour distribution de Dirichlet (plus petit = plus non-IID)
         
     Returns:
         L'historique des évaluations du modèle global et des valeurs de μ
@@ -53,13 +62,19 @@ def run_federated_learning_adaptive_mu(mnist_base_path, test_dataset,
         edge = AdaptiveEdgeNode(f"edge_{i}", mnist_base_path, FedProxModel, mu=0.01, verbose=verbose)
         edges.append(edge)
     
-    # Charger les données pour chaque edge
+    # Charger les données pour chaque edge avec distribution de Dirichlet
     for edge in edges:
-        edge.load_data(num_classes, folders_per_edge=folders_per_edge)
+        edge.load_data(num_classes, folders_per_edge=folders_per_edge, dirichlet_alpha=dirichlet_alpha)
     
     # Historique des évaluations et des valeurs de μ
     evaluation_history = []
     mu_history = []
+    
+    # Pour le momentum
+    previous_weights = None
+    
+    # Pour adaptative learning rate
+    initial_lr = 0.01
     
     # Exécuter les rounds de fédération
     for round_num in range(num_rounds):
@@ -69,9 +84,17 @@ def run_federated_learning_adaptive_mu(mnist_base_path, test_dataset,
         # Obtenir les poids du modèle global actuel
         global_weights = server.initialize_model() if round_num == 0 else server.global_model.get_weights()
         
-        # Collecter les distributions de classes de tous les edges
-        edge_class_distributions = [edge.get_class_distribution() for edge in edges]
-        edge_sample_counts = [edge.get_sample_count() for edge in edges]
+        # Sélectionner un sous-ensemble de clients si client_fraction < 1
+        selected_edges = edges
+        if client_fraction < 1.0:
+            num_selected = max(1, int(client_fraction * num_edges))
+            selected_edges = random.sample(edges, num_selected)
+            if verbose > 0:
+                print(f"Sélection de {num_selected} clients pour ce round")
+        
+        # Collecter les distributions de classes de tous les edges sélectionnés
+        edge_class_distributions = [edge.get_class_distribution() for edge in selected_edges]
+        edge_sample_counts = [edge.get_sample_count() for edge in selected_edges]
         
         # Mettre à jour la distribution globale des classes
         server.update_global_class_distribution(edge_class_distributions, edge_sample_counts)
@@ -87,26 +110,73 @@ def run_federated_learning_adaptive_mu(mnist_base_path, test_dataset,
             )
             
             # Mettre à jour les valeurs de μ pour chaque edge
-            for i, edge in enumerate(edges):
+            for i, edge in enumerate(selected_edges):
                 edge.update_mu(edge_mus[i])
             
             # Enregistrer les valeurs de μ
             mu_history.append(edge_mus)
         else:
             # Premier round, utiliser les valeurs initiales
-            initial_mus = [edge.mu for edge in edges]
+            initial_mus = [edge.mu for edge in selected_edges]
             mu_history.append(initial_mus)
         
-        # Entraîner chaque edge avec les poids globaux actuels
-        edge_weights_list = []
+        # Ajuster le learning rate en fonction du round
+        current_lr = initial_lr * (1.0 / (1.0 + 0.1 * round_num))
+        if verbose > 0:
+            print(f"Learning rate pour ce round: {current_lr:.6f}")
         
-        for edge in edges:
+        # Fonction pour entraîner un edge en parallèle
+        def train_edge(edge):
+            # Ajuster le nombre d'époques en fonction de la taille des données locales
+            adaptive_epochs = edge_epochs
+            if edge.get_sample_count() < 500:
+                adaptive_epochs = min(5, edge_epochs + 2)  # Plus d'époques pour les petits datasets
+            elif edge.get_sample_count() > 2000:
+                adaptive_epochs = max(1, edge_epochs - 1)  # Moins d'époques pour les grands datasets
+                
             # Entraîner le modèle local de cet edge
-            edge_weights = edge.train_model(global_weights, input_shape, num_classes, edge_epochs)
-            edge_weights_list.append(edge_weights)
+            edge_weights = edge.train_model(
+                global_weights, 
+                input_shape, 
+                num_classes, 
+                adaptive_epochs,
+                learning_rate=current_lr
+            )
+            return edge_weights
+        
+        # Entraîner les edges en parallèle si possible
+        edge_weights_list = []
+        try:
+            # Utiliser la parallélisation si le nombre d'edges est suffisant
+            if len(selected_edges) >= 4:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(selected_edges), os.cpu_count())) as executor:
+                    edge_weights_list = list(executor.map(train_edge, selected_edges))
+            else:
+                # Sinon, entraîner séquentiellement
+                for edge in selected_edges:
+                    edge_weights_list.append(train_edge(edge))
+        except Exception as e:
+            print(f"Erreur lors de l'entraînement parallèle: {e}")
+            # Fallback à l'entraînement séquentiel en cas d'erreur
+            edge_weights_list = []
+            for edge in selected_edges:
+                edge_weights = edge.train_model(global_weights, input_shape, num_classes, edge_epochs)
+                edge_weights_list.append(edge_weights)
         
         # Agréger les poids des modèles locaux
         aggregated_weights = server.aggregate_weights(edge_weights_list, edge_sample_counts)
+        
+        # Appliquer le momentum si activé et après le premier round
+        if use_momentum and previous_weights is not None:
+            new_weights = []
+            for i in range(len(aggregated_weights)):
+                # Mélanger les nouveaux poids avec les anciens selon le facteur de momentum
+                new_layer_weights = (1 - momentum) * aggregated_weights[i] + momentum * previous_weights[i]
+                new_weights.append(new_layer_weights)
+            aggregated_weights = new_weights
+        
+        # Stocker les poids pour le momentum du prochain round
+        previous_weights = aggregated_weights.copy() if use_momentum else None
         
         # Mettre à jour le modèle global
         server.update_global_model(aggregated_weights)
@@ -116,14 +186,14 @@ def run_federated_learning_adaptive_mu(mnist_base_path, test_dataset,
         evaluation_history.append((loss, accuracy))
         
         if verbose > 0:
-            avg_mu = np.mean(mu_history[-1])
+            avg_mu = np.mean(mu_history[-1]) if mu_history else 0
             print(f"Round {round_num + 1} - Perte: {loss:.4f}, Précision: {accuracy:.4f}, μ moyen: {avg_mu:.4f}")
     
     return evaluation_history, mu_history
 
 
 def run_federated_learning_standard(mnist_base_path, test_dataset, model_class, mu=0.0, 
-                                   num_edges=10, num_rounds=5, edge_epochs=1, 
+                                   num_edges=20, num_rounds=5, edge_epochs=1, 
                                    input_shape=(28, 28), num_classes=10, 
                                    folders_per_edge=2, verbose=1):
     """
@@ -165,6 +235,11 @@ def run_federated_learning_standard(mnist_base_path, test_dataset, model_class, 
     # Historique des évaluations
     evaluation_history = []
     
+    # Pour le momentum
+    previous_weights = None
+    momentum = 0.1
+    use_momentum = True
+    
     # Exécuter les rounds de fédération
     for round_num in range(num_rounds):
         if verbose > 0:
@@ -186,6 +261,18 @@ def run_federated_learning_standard(mnist_base_path, test_dataset, model_class, 
         # Agréger les poids des modèles locaux
         aggregated_weights = server.aggregate_weights(edge_weights_list, edge_sample_counts)
         
+        # Appliquer le momentum si activé et après le premier round
+        if use_momentum and previous_weights is not None:
+            new_weights = []
+            for i in range(len(aggregated_weights)):
+                # Mélanger les nouveaux poids avec les anciens selon le facteur de momentum
+                new_layer_weights = (1 - momentum) * aggregated_weights[i] + momentum * previous_weights[i]
+                new_weights.append(new_layer_weights)
+            aggregated_weights = new_weights
+        
+        # Stocker les poids pour le momentum du prochain round
+        previous_weights = aggregated_weights.copy() if use_momentum else None
+        
         # Mettre à jour le modèle global
         server.update_global_model(aggregated_weights)
         
@@ -199,8 +286,8 @@ def run_federated_learning_standard(mnist_base_path, test_dataset, model_class, 
     return evaluation_history
 
 
-def compare_fedavg_fedprox_adaptive(mnist_base_path, num_edges=10, num_rounds=10, edge_epochs=1, 
-                                  folders_per_edge=2, verbose=1):
+def compare_fedavg_fedprox_adaptive(mnist_base_path, num_edges=20, num_rounds=10, edge_epochs=1, 
+                                  folders_per_edge=2, verbose=1, use_adaptive_params=True):
     """
     Compare les performances de FedAvg, FedProx standard et FedProx avec μ adaptatif.
     
@@ -211,6 +298,7 @@ def compare_fedavg_fedprox_adaptive(mnist_base_path, num_edges=10, num_rounds=10
         edge_epochs: Nombre d'époques d'entraînement par edge
         folders_per_edge: Nombre de dossiers (classes) par edge 
         verbose: Niveau de verbosité
+        use_adaptive_params: Utiliser des paramètres adaptatifs améliorés
         
     Returns:
         Dictionnaire des historiques d'évaluation, historique de μ, et métriques du modèle centralisé
@@ -219,6 +307,10 @@ def compare_fedavg_fedprox_adaptive(mnist_base_path, num_edges=10, num_rounds=10
     X_train, X_test, y_train, y_test, input_shape = fl_dataquest.get_data(mnist_base_path, verbose=verbose)
     # Créer le jeu de données de test
     _, test_dataset = fl_dataquest.get_dataset(X_train, X_test, y_train, y_test, batch_size=32, verbose=verbose)
+    
+    # Paramètres adaptatifs
+    client_fraction = 0.8 if use_adaptive_params else 1.0  # Sélectionner 80% des clients par round
+    dirichlet_alpha = 0.5  # Distribution non-IID naturelle
     
     # Exécuter FedAvg
     print("\n--- Exécution de FedAvg ---")
@@ -260,14 +352,31 @@ def compare_fedavg_fedprox_adaptive(mnist_base_path, num_edges=10, num_rounds=10
         edge_epochs=edge_epochs, 
         input_shape=input_shape, 
         folders_per_edge=folders_per_edge,
-        verbose=verbose
+        verbose=verbose,
+        client_fraction=client_fraction,
+        dirichlet_alpha=dirichlet_alpha
     )
     
     # Entraîner un modèle centralisé pour comparaison
     print("\n--- Entraînement du modèle centralisé pour comparaison ---")
     central_model = FedProxModel(input_shape, nbclasses=10)
     train_dataset, _ = fl_dataquest.get_dataset(X_train, X_test, y_train, y_test, batch_size=32, verbose=verbose)
-    central_model.fit_it(trains=train_dataset, epochs=num_rounds * edge_epochs, tests=test_dataset, verbose=verbose)
+    
+    # Ajouter des callbacks pour améliorer l'entraînement centralisé
+    callbacks = []
+    if tf.keras.callbacks.EarlyStopping is not None:
+        callbacks.append(tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=3, restore_best_weights=True))
+    if tf.keras.callbacks.ReduceLROnPlateau is not None:
+        callbacks.append(tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=2))
+    
+    central_model.model.fit(
+        train_dataset,
+        epochs=num_rounds * edge_epochs,
+        validation_data=test_dataset,
+        callbacks=callbacks,
+        verbose=verbose
+    )
+    
     central_loss, central_accuracy = central_model.evaluate(test_dataset, verbose=verbose)
     print(f"\nModèle centralisé - Perte: {central_loss:.4f}, Précision: {central_accuracy:.4f}")
     
@@ -385,6 +494,41 @@ def plot_comparison_with_adaptive(fedavg_history, fedprox_history, adaptive_hist
     plt.title('Évolution du μ adaptatif et de la précision', fontsize=14)
     plt.grid(True, alpha=0.3)
     plt.savefig('figures/mu_vs_accuracy.png', dpi=300, bbox_inches='tight')
+    
+    # Graphique de comparaison avec le modèle centralisé
+    plt.figure(figsize=(14, 7))
+    
+    # Calculer l'écart relatif avec le modèle centralisé
+    fedavg_gap = [(central_accuracy - acc) / central_accuracy * 100 for acc in fedavg_accuracies]
+    fedprox_gap = [(central_accuracy - acc) / central_accuracy * 100 for acc in fedprox_accuracies]
+    adaptive_gap = [(central_accuracy - acc) / central_accuracy * 100 for acc in adaptive_accuracies]
+    
+    plt.plot(rounds, fedavg_gap, marker='o', label='FedAvg')
+    plt.plot(rounds, fedprox_gap, marker='s', label='FedProx (μ=0.1)')
+    plt.plot(rounds, adaptive_gap, marker='^', label='FedProx (μ adaptatif)')
+    
+    plt.xlabel('Round', fontsize=12)
+    plt.ylabel('Écart relatif avec le modèle centralisé (%)', fontsize=12)
+    plt.title('Comparaison de l\'écart avec le modèle centralisé', fontsize=14)
+    plt.legend(fontsize=10)
+    plt.grid(True, alpha=0.3)
+    
+    # Ajouter des annotations pour les valeurs finales
+    final_round = num_rounds - 1
+    plt.annotate(f"{fedavg_gap[-1]:.1f}%", 
+                xy=(rounds[-1], fedavg_gap[-1]), 
+                xytext=(5, 0), 
+                textcoords='offset points')
+    plt.annotate(f"{fedprox_gap[-1]:.1f}%", 
+                xy=(rounds[-1], fedprox_gap[-1]), 
+                xytext=(5, 0), 
+                textcoords='offset points')
+    plt.annotate(f"{adaptive_gap[-1]:.1f}%", 
+                xy=(rounds[-1], adaptive_gap[-1]), 
+                xytext=(5, 0), 
+                textcoords='offset points')
+    
+    plt.savefig('figures/centralized_comparison.png', dpi=300, bbox_inches='tight')
 
 
 if __name__ == "__main__":
@@ -397,9 +541,9 @@ if __name__ == "__main__":
         mnist_base_path = input("Veuillez entrer le chemin correct vers le dataset MNIST: ")
     
     # Paramètres de l'expérience
-    num_edges = 10
+    num_edges = 20
     num_rounds = 30
-    edge_epochs = 1
+    edge_epochs = 2  # Augmenté de 1 à 2 pour améliorer les performances
     folders_per_edge = 2  # Distribution non-IID: 2 classes par edge
     verbose = 1
     
@@ -411,7 +555,8 @@ if __name__ == "__main__":
         num_rounds=num_rounds, 
         edge_epochs=edge_epochs, 
         folders_per_edge=folders_per_edge,
-        verbose=verbose
+        verbose=verbose,
+        use_adaptive_params=True  # Activer les paramètres adaptatifs améliorés
     )
     
     # Afficher les résultats finaux
@@ -420,3 +565,24 @@ if __name__ == "__main__":
     print(f"FedProx standard - Précision finale: {results['FedProx'][-1][1]:.4f}")
     print(f"FedProx μ adaptatif - Précision finale: {results['AdaptiveFedProx'][-1][1]:.4f}")
     print(f"Modèle centralisé - Précision: {central_metrics[1]:.4f}")
+    
+    # Afficher l'écart avec le modèle centralisé
+    print("\n=== Écart avec le modèle centralisé ===")
+    fedavg_gap = (central_metrics[1] - results['FedAvg'][-1][1]) / central_metrics[1] * 100
+    fedprox_gap = (central_metrics[1] - results['FedProx'][-1][1]) / central_metrics[1] * 100
+    adaptive_gap = (central_metrics[1] - results['AdaptiveFedProx'][-1][1]) / central_metrics[1] * 100
+    
+    print(f"FedAvg - Écart: {fedavg_gap:.2f}%")
+    print(f"FedProx standard - Écart: {fedprox_gap:.2f}%")
+    print(f"FedProx μ adaptatif - Écart: {adaptive_gap:.2f}%")
+    
+    # Identifier le meilleur algorithme
+    best_accuracy = max(results['FedAvg'][-1][1], results['FedProx'][-1][1], results['AdaptiveFedProx'][-1][1])
+    if best_accuracy == results['FedAvg'][-1][1]:
+        best_algo = "FedAvg"
+    elif best_accuracy == results['FedProx'][-1][1]:
+        best_algo = "FedProx standard"
+    else:
+        best_algo = "FedProx μ adaptatif"
+    
+    print(f"\nMeilleur algorithme: {best_algo} avec une précision de {best_accuracy:.4f}")
