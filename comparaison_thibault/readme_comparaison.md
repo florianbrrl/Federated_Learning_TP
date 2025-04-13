@@ -1,4 +1,4 @@
-# Apprentissage Fédéré : Analyse Comparative de FedAvg, FedProx et FedProx Adaptatif
+# Apprentissage Fédéré : Analyse Comparative de FedAvg, FedProx et FedProx Adaptatif (run_adaptive_fedprox.py)
 # Introduction
 Ce projet implémente et compare trois approches d'apprentissage fédéré pour la classification d'images sur le dataset MNIST: FedAvg (Federated Averaging), FedProx (avec μ fixe), et FedProx avec μ adaptatif. L'objectif est d'analyser les performances de ces algorithmes dans un environnement où les données sont distribuées de manière non-IID (non identiquement distribuées) entre plusieurs clients, ce qui représente un scénario réaliste pour l'apprentissage fédéré.
 L'apprentissage fédéré est une approche de machine learning qui permet d'entraîner un modèle global à partir de données localisées sur différents appareils (clients), sans nécessiter le transfert des données vers un serveur central. Cette approche présente des avantages en termes de confidentialité des données et de réduction de la bande passante nécessaire.
@@ -23,7 +23,7 @@ Configuration expérimentale
 * Modèle: Réseau de neurones avec deux couches cachées (200 et 100 neurones)
 Analyse des résultats
 
-### Graphique 1: Évolution du μ adaptatif et de la précision
+### Graphique 1: Évolution du μ adaptatif et de la précision (accuracy_comparison_adaptive.png)
 ￼
 Ce graphique montre la relation entre l'évolution du paramètre μ adaptatif (axe gauche, en bleu) et la précision du modèle (axe droit, en rouge) au fil des rounds. On observe que:
 * La valeur moyenne de μ commence à environ 0.01, diminue dans les premiers rounds jusqu'à environ 0.006, puis augmente progressivement pour atteindre des valeurs plus élevées (jusqu'à 0.015) vers la fin de l'entraînement.
@@ -37,13 +37,13 @@ Ce graphique compare l'évolution de la fonction de perte pour les trois algorit
 * FedProx adaptatif (vert) présente un comportement plus irrégulier: il commence à diminuer rapidement, puis se stabilise autour d'une valeur de 0.9, révélant un compromis différent entre minimisation de la perte et généralisation.
 Graphique 3: Comparaison de l'écart avec le modèle centralisé
 ￼
-### Ce graphique montre l'écart relatif (en pourcentage) entre les performances des algorithmes fédérés et celles du modèle centralisé entraîné sur toutes les données:
+### Ce graphique montre l'écart relatif (en pourcentage) entre les performances des algorithmes fédérés et celles du modèle centralisé entraîné sur toutes les données: ()
 * FedAvg termine avec le plus petit écart (12.2%), montrant qu'il peut s'approcher le plus des performances du modèle centralisé malgré la distribution non-IID.
 * FedProx standard affiche un écart de 18.6%.
 * FedProx adaptatif montre un écart de 23.7%, mais présente un comportement intéressant en début d'entraînement où il réduit l'écart plus rapidement que FedProx standard.
 Graphique 4: Évolution du paramètre μ adaptatif
 ￼
-### Ce graphique détaille l'évolution du paramètre μ adaptatif:
+### Ce graphique détaille l'évolution du paramètre μ adaptatif: (adaptive_mu_evolution.png)
 * La valeur moyenne de μ (ligne bleue) présente des fluctuations importantes, suggérant que l'algorithme s'adapte aux conditions changeantes de l'entraînement.
 * La zone ombrée bleue représente la plage des valeurs de μ pour différents clients, montrant que le paramètre est personnalisé pour chaque client.
 * On observe une tendance générale à l'augmentation de μ à mesure que l'entraînement progresse, avec une croissance plus marquée après le round 20.
@@ -69,3 +69,4 @@ Pour les travaux futurs, il serait intéressant d'explorer:
 * L'application à des datasets plus complexes (CIFAR-10, ImageNet)
 * L'intégration de mécanismes de confidentialité différentielle
 Cette étude démontre que l'apprentissage fédéré peut atteindre des performances raisonnables même avec des données distribuées de manière non uniforme, tout en préservant la confidentialité des données locales.
+D'autres expérimentations ont été réalisées dans ces fichiers, mais leurs résultats, jugés insuffisants, n'ont pas été inclus dans ce rapport.
