@@ -1,3 +1,4 @@
+comparaisonFedAvgvsFedProx.png
 Analyse comparative de FedAvg et FedProx sur MNIST
 Description du graphique
 Ce graphique présente une comparaison de la précision entre les algorithmes d'apprentissage fédéré FedAvg et FedProx (avec différentes valeurs du paramètre μ) sur le jeu de données MNIST.
