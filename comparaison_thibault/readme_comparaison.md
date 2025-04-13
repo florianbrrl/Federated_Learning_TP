@@ -23,7 +23,7 @@ Configuration expérimentale
 * Modèle: Réseau de neurones avec deux couches cachées (200 et 100 neurones)
 Analyse des résultats
 
-### Graphique 1: Évolution du μ adaptatif et de la précision (accuracy_comparison_adaptive.png)
+### Graphique 1: Évolution du μ adaptatif et de la précision (mu_vs_accuracy.png)
 ￼
 Ce graphique montre la relation entre l'évolution du paramètre μ adaptatif (axe gauche, en bleu) et la précision du modèle (axe droit, en rouge) au fil des rounds. On observe que:
 * La valeur moyenne de μ commence à environ 0.01, diminue dans les premiers rounds jusqu'à environ 0.006, puis augmente progressivement pour atteindre des valeurs plus élevées (jusqu'à 0.015) vers la fin de l'entraînement.
@@ -37,7 +37,7 @@ Ce graphique compare l'évolution de la fonction de perte pour les trois algorit
 * FedProx adaptatif (vert) présente un comportement plus irrégulier: il commence à diminuer rapidement, puis se stabilise autour d'une valeur de 0.9, révélant un compromis différent entre minimisation de la perte et généralisation.
 Graphique 3: Comparaison de l'écart avec le modèle centralisé
 ￼
-### Ce graphique montre l'écart relatif (en pourcentage) entre les performances des algorithmes fédérés et celles du modèle centralisé entraîné sur toutes les données: ()
+### Ce graphique montre l'écart relatif (en pourcentage) entre les performances des algorithmes fédérés et celles du modèle centralisé entraîné sur toutes les données: (centralized_comparison.png)
 * FedAvg termine avec le plus petit écart (12.2%), montrant qu'il peut s'approcher le plus des performances du modèle centralisé malgré la distribution non-IID.
 * FedProx standard affiche un écart de 18.6%.
 * FedProx adaptatif montre un écart de 23.7%, mais présente un comportement intéressant en début d'entraînement où il réduit l'écart plus rapidement que FedProx standard.
@@ -49,7 +49,7 @@ Graphique 4: Évolution du paramètre μ adaptatif
 * On observe une tendance générale à l'augmentation de μ à mesure que l'entraînement progresse, avec une croissance plus marquée après le round 20.
 Graphique 5: Comparaison de la précision
 ￼
-### Ce graphique compare directement la précision des trois algorithmes par rapport au modèle centralisé:
+### Ce graphique compare directement la précision des trois algorithmes par rapport au modèle centralisé:(accuracy_comparison_adaptive.png)
 * FedAvg (bleu) surpasse les autres méthodes, atteignant une précision d'environ 0.85 après 30 rounds.
 * FedProx standard (orange) atteint environ 0.79.
 * FedProx adaptatif (vert) montre des performances plus variables, avec une précision finale d'environ 0.74.
